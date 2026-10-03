@@ -254,6 +254,8 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
 #define USERMOD_ID_RF433                 56     //Usermod "usermod_v2_RF433.h"
 #define USERMOD_ID_BRIGHTNESS_FOLLOW_SUN 57     //Usermod "usermod_v2_brightness_follow_sun.h"
 #define USERMOD_ID_USER_FX               58     //Usermod "user_fx"
+#define USERMOD_ID_LORA                  59     //Usermod "lora_rx"
+#define USERMOD_ID_USB_OLED              60     //Usermod "usb_oled_test"
 
 //Wifi encryption type
 #ifdef WLED_ENABLE_WPA_ENTERPRISE
@@ -533,6 +535,8 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
 #define JSON_LOCK_LEDMAP_ENUM     21
 #define JSON_LOCK_REMOTE          22
 #define JSON_LOCK_OTA             23
+#define JSON_LOCK_LORA            24
+#define JSON_LOCK_USB             25
 
 // Timer mode types
 #define NL_MODE_SET               0            //After nightlight time elapsed, set to target brightness

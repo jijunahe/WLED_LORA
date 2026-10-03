@@ -1,4 +1,5 @@
 #include "wled.h"
+#include "aes_link.h"
 
 /*
  * WebSockets server for bidirectional communication
@@ -56,6 +57,12 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
           releaseJSONBufferLock();
           return;
         }
+        if (!wledAesAccept(*pDoc, true)) {
+          releaseJSONBufferLock();
+          client->text(F("{\"error\":1}"));
+          return;
+        }
+        root = pDoc->as<JsonObject>();
         if (root["v"] && root.size() == 1) {
           //if the received value is just "{"v":true}", send only to this client
           verboseResponse = true;

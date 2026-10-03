@@ -21,6 +21,7 @@
 #endif
 #include "html_cpal.h"
 #include "html_edit.h"
+#include "aes_link.h"
 
 // forward declarations
 static void createEditHandler();
@@ -435,10 +436,15 @@ void initServer()
       serveJsonError(request, 400, ERR_JSON);
       return;
     }
-    if (root.containsKey("pin")) checkSettingsPIN(root["pin"].as<const char*>());
-
     const String& url = request->url();
     isConfig = url.indexOf(F("cfg")) > -1;
+    if (!wledAesAccept(*pDoc, !isConfig)) {
+      releaseJSONBufferLock();
+      serveJsonError(request, 401, ERR_DENIED);
+      return;
+    }
+    root = pDoc->as<JsonObject>();
+    if (root.containsKey("pin")) checkSettingsPIN(root["pin"].as<const char*>());
     if (!isConfig) {
       /*
       #ifdef WLED_DEBUG

@@ -1,4 +1,5 @@
 #include "wled.h"
+#include "aes_link.h"
 
 /*
  * Receives client input
@@ -913,6 +914,10 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
 bool handleSet(AsyncWebServerRequest *request, const String& req, bool apply)
 {
   if (!(req.indexOf("win") >= 0)) return false;
+  if (request != nullptr && !wledAesAllowHttp(request->url(), request->hasHeader(F("X-WLED-AES")) ? request->header(F("X-WLED-AES")).c_str() : nullptr)) {
+    request->send(401, FPSTR(CONTENT_TYPE_JSON), F("{\"error\":1}"));
+    return true;
+  }
 
   int pos = 0;
   DEBUG_PRINTF_P(PSTR("API req: %s\n"), req.c_str());

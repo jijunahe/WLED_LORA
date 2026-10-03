@@ -1434,6 +1434,11 @@ function makeWS() {
 	ws.onmessage = (e)=>{
 		if (e.data instanceof ArrayBuffer) return; // liveview packet
 		var json = JSON.parse(e.data);
+		if (json.error === 1) {
+			sessionStorage.removeItem("wled_aes_key");
+			showToast("Llave AES rechazada", true);
+			return;
+		}
 		if (json.leds) return; // JSON liveview packet
 		clearTimeout(jsonTimeout);
 		jsonTimeout = null;
@@ -1753,8 +1758,47 @@ function setEffectParameters(idx)
 
 var jsonTimeout;
 var reqsLegal = false;
+
+function bytesToB64(bytes) {
+	let bin = "";
+	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+	return btoa(bin);
+}
+
+async function aesSeal(plainText) {
+	const hex = (sessionStorage.getItem("wled_aes_key") || "").trim();
+	if (!/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+	const raw = new Uint8Array(16);
+	for (let i = 0; i < 16; i++) raw[i] = parseInt(hex.substr(i * 2, 2), 16);
+	const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
+	const nonce = crypto.getRandomValues(new Uint8Array(12));
+	const cipher = new Uint8Array(await crypto.subtle.encrypt(
+		{name: "AES-GCM", iv: nonce, tagLength: 128},
+		key,
+		new TextEncoder().encode(plainText)
+	));
+	const frame = new Uint8Array(1 + nonce.length + cipher.length);
+	frame[0] = 0xA1;
+	frame.set(nonce, 1);
+	frame.set(cipher, 13);
+	return bytesToB64(frame);
+}
+
+async function aesPrompt() {
+	let hex = (sessionStorage.getItem("wled_aes_key") || "").trim();
+	if (/^[0-9a-fA-F]{32}$/.test(hex)) return hex;
+	hex = (prompt("Llave AES-128 (32 caracteres hex):") || "").trim();
+	if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
+		showToast("Llave AES rechazada", true);
+		return null;
+	}
+	sessionStorage.setItem("wled_aes_key", hex.toLowerCase());
+	return hex;
+}
+
 async function requestJson(command=null, retry=0) {
-	return new Promise((resolve, reject) => {
+	return new Promise(async (resolve, reject) => {
+		try {
 		gId('connind').style.backgroundColor = "var(--c-y)";
 		if (command && !reqsLegal) {resolve(); return;}
 		if (!jsonTimeout) jsonTimeout = setTimeout(()=>{if (ws) ws.close(); ws=null; showErrorToast()}, 3000);
@@ -1770,6 +1814,12 @@ async function requestJson(command=null, retry=0) {
 				if (tn != tr) command.transition = tn;
 			}
 			req = JSON.stringify(command);
+			if (lastinfo && lastinfo.aes128) {
+				if (!await aesPrompt()) { resolve(); return; }
+				const sealed = await aesSeal(req);
+				if (!sealed) { resolve(); return; }
+				req = JSON.stringify({aes: sealed});
+			}
 			if (req.length > 1340) useWs = false;
 			if (req.length > 500 && lastinfo && lastinfo.arch == "esp8266") useWs = false;
 		}
@@ -1788,6 +1838,11 @@ async function requestJson(command=null, retry=0) {
 		.then(res => {
 			clearTimeout(jsonTimeout);
 			jsonTimeout = null;
+			if (res.status === 401) {
+				sessionStorage.removeItem("wled_aes_key");
+				showToast("Llave AES rechazada", true);
+				return {success: true};
+			}
 			return res.ok ? res.json() : Promise.reject();
 		})
 		.then(json => {
@@ -1815,6 +1870,10 @@ async function requestJson(command=null, retry=0) {
 				resolve();
 			}
 		});
+		} catch (e) {
+			showToast(e, true);
+			resolve();
+		}
 	});
 }
 
