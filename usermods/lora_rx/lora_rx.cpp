@@ -41,7 +41,7 @@
 // on the SX1276. One MessagePack object per LoRa frame is applied with the same
 // path as POST /json/state. A frame may be the state object itself, or
 // {"state":{...}} when it has no top-level on/bri/seg keys.
-// LED data stays on GPIO 4 via DATA_PINS in the ttgo_t32 environment.
+// LED data stays on GPIO 2 via DATA_PINS in the ttgo_t32 environment.
 //
 // The MessagePack is wrapped in an AES-128-GCM frame. The same key, stored from
 // Config > Usermods, is required for HTTP/WebSocket state changes.
@@ -108,6 +108,7 @@ std::atomic<uint32_t> packetsSent{0};
 std::atomic<bool> txBusy{false};
 std::atomic<uint32_t> txDoneAt{0};
 std::atomic<int16_t> lastRssi{0};
+std::atomic<int> lastPlaylist{0};
 std::atomic<uint8_t> roleRaw{0};   // 0 receiver, 1 transmitter
 std::atomic<uint8_t> inputRaw{1};  // 0 wifi, 1 lora
 
@@ -117,7 +118,7 @@ size_t pendingLen = 0;
 bool rxListening = false;
 
 bool isTransmitter() { return roleRaw.load() == 1; }
-bool IRAM_ATTR listenLoRa() { return roleRaw.load() == 0 && inputRaw.load() == 1; }
+bool IRAM_ATTR listenLoRa() { return roleRaw.load() == 0; }
 
 bool sendingNow() {
   if (!isTransmitter()) return false;
@@ -383,6 +384,31 @@ void transmitPending() {
   }
 }
 
+bool applyClearJson(const uint8_t* frame, size_t frameLen) {
+  // Mismo camino que POST /json: deserializeJson y deserializeState.
+  if (frameLen < 2 || frameLen > kMaxPacket || frame[0] != '{') return false;
+  if (!requestJSONBufferLock(JSON_LOCK_LORA)) return false;
+
+  char text[kMaxPacket + 1];
+  memcpy(text, frame, frameLen);
+  text[frameLen] = '\0';
+
+  const DeserializationError error = deserializeJson(*pDoc, text);
+  JsonObject root = pDoc->as<JsonObject>();
+  if (error || root.isNull()) {
+    releaseJSONBufferLock();
+    return false;
+  }
+
+  if (root[F("playlist")].is<int>()) lastPlaylist.store(root[F("playlist")].as<int>());
+  else if (root[F("ps")].is<int>()) lastPlaylist.store(root[F("ps")].as<int>());
+
+  deserializeState(root, CALL_MODE_DIRECT_CHANGE);
+  releaseJSONBufferLock();
+  DEBUG_PRINTLN(F("LoRa: JSON aplicado como en Wi-Fi"));
+  return true;
+}
+
 void handleFrame() {
   if (!radio || !listenLoRa()) return;
 
@@ -396,7 +422,7 @@ void handleFrame() {
   const int16_t state = radio->readData(packet, len);
   if (state == RADIOLIB_ERR_NONE) {
     lastRssi.store((int16_t)radio->getRSSI());
-    if (unpackAndApply(packet, len)) packetsApplied.fetch_add(1);
+    if (applyClearJson(packet, len)) packetsApplied.fetch_add(1);
     else DEBUG_PRINTF_P(PSTR("LoRa: ignored %u byte frame\n"), (unsigned)len);
   } else {
     DEBUG_PRINTF_P(PSTR("LoRa: readData %d\n"), state);
@@ -437,7 +463,7 @@ void refreshOled(bool force) {
   const bool tx = isTransmitter();
   const bool sending = sendingNow();
   const char* role = !radioReady.load() ? "OFF" : (tx ? "TRANSMITE" : "RECIBE");
-  const char* via = tx || inputRaw.load() == 1 ? "LoRa" : "WiFi";
+  const char* via = "LoRa";
   const char* aes = aesReady ? "ON" : "OFF";
   const unsigned packets = tx ? packetsSent.load() : packetsApplied.load();
 
@@ -476,8 +502,10 @@ void refreshOled(bool force) {
     oled.print(F("via "));
     oled.print(via);
     if (packets > 0) {
-      char count[16];
-      snprintf(count, sizeof(count), "n:%u", packets);
+      char count[24];
+      const int playlist = lastPlaylist.load();
+      if (playlist > 0) snprintf(count, sizeof(count), "pl:%d", playlist);
+      else snprintf(count, sizeof(count), "n:%u", packets);
       oled.setCursor(72, 46);
       oled.print(count);
     }

@@ -520,6 +520,12 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
   // a) "preset direct" can only be an integer value representing preset ID. "preset direct" assumes JSON API contains the rest of preset content (i.e. from UI call)
   //    "preset direct" JSON can contain "ps" API (i.e. call from UI to cycle presets) in such case stateChanged has to be false (i.e. no "win" or "seg" API)
   // b) "preset select" can be cycling ("1~5~""), random ("r" or "1~5r"), ID, etc. value allowed from JSON API. This type of call assumes no state changing content in API call
+  // {"playlist": N} es el mismo selector que {"ps": N} en la API Wi-Fi.
+  // Carga el preset N; si ese preset guarda una playlist, se ejecuta entera.
+  if (root[F("ps")].isNull() && root[F("playlist")].is<int>()) {
+    root[F("ps")] = root[F("playlist")].as<int>();
+  }
+
   byte presetToRestore = 0;
   if (!root[F("pd")].isNull() && stateChanged) {
     // a) already applied preset content (requires "seg" or "win" but will ignore the rest)
